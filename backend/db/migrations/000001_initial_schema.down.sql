@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS enrollments;
+DROP TABLE IF EXISTS classes;
+DROP TABLE IF EXISTS users;
+DROP TYPE IF EXISTS enrollment_status;
+DROP TYPE IF EXISTS class_status;
