@@ -79,7 +79,11 @@ func TestAPI_catalog_and_enroll(t *testing.T) {
 	_ = seedClass(t, db, "Secret Draft", "draft", 10)
 
 	st := store.New(db)
-	h := server.New(st, nil).Handler()
+	srv, err := server.New(st, server.Options{AuthDev: true})
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	h := srv.Handler()
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 
@@ -173,7 +177,11 @@ func TestAPI_enroll_respects_capacity(t *testing.T) {
 	}
 
 	st := store.New(db)
-	h := server.New(st, nil).Handler()
+	srv, err := server.New(st, server.Options{AuthDev: true})
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	h := srv.Handler()
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -50,7 +51,36 @@ func main() {
 	}
 
 	corsOrigins := server.ParseAllowedCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
-	srv := server.New(store.New(db), corsOrigins)
+
+	opts := server.Options{
+		AllowedOrigins: corsOrigins,
+		AuthDev:        os.Getenv("AUTH_DEV") == "1",
+	}
+
+	if cid := strings.TrimSpace(os.Getenv("OAUTH_CLIENT_ID")); cid != "" {
+		sessionTTL := 7 * 24 * time.Hour
+		if v := strings.TrimSpace(os.Getenv("SESSION_TTL_HOURS")); v != "" {
+			if h, err := strconv.Atoi(v); err == nil && h > 0 {
+				sessionTTL = time.Duration(h) * time.Hour
+			}
+		}
+		scopes := strings.Fields(strings.TrimSpace(os.Getenv("OAUTH_SCOPES")))
+		opts.OAuth = &server.OAuthSettings{
+			Issuer:          strings.TrimSpace(os.Getenv("OAUTH_ISSUER")),
+			ClientID:        cid,
+			ClientSecret:    strings.TrimSpace(os.Getenv("OAUTH_CLIENT_SECRET")),
+			RedirectURL:     strings.TrimSpace(os.Getenv("OAUTH_REDIRECT_URI")),
+			AppPublicOrigin: strings.TrimSpace(os.Getenv("APP_PUBLIC_ORIGIN")),
+			Scopes:          scopes,
+			CookieSecure:    os.Getenv("COOKIE_SECURE") == "1",
+			SessionTTL:      sessionTTL,
+		}
+	}
+
+	srv, err := server.New(store.New(db), opts)
+	if err != nil {
+		log.Fatalf("server init: %v", err)
+	}
 
 	httpServer := &http.Server{
 		Addr:              addr,

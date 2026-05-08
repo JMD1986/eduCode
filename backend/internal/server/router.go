@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
@@ -10,12 +12,19 @@ import (
 	"nextwork/backend/internal/store"
 )
 
+// Server wires HTTP routes to handlers and middleware.
 type Server struct {
 	store *store.Store
 	mux   chi.Router
+	opts  Options
+
+	oauthRT             *oauthRuntime
+	sessionCookieSecure bool // aligns logout cookie flags with login when OAuth is configured
 }
 
-func New(st *store.Store, allowedOrigins []string) *Server {
+// New constructs the HTTP API. OAuth machinery initializes eagerly when opts.OAuth is set.
+func New(st *store.Store, opts Options) (*Server, error) {
+	allowedOrigins := opts.AllowedOrigins
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{
 			"http://localhost:5173",
@@ -27,23 +36,51 @@ func New(st *store.Store, allowedOrigins []string) *Server {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Content-Type", headerDevUserSubject},
+		AllowedHeaders:   []string{"Accept", "Content-Type", "Origin", headerDevUserSubject},
 		ExposedHeaders:   []string{},
-		AllowCredentials: false,
+		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	s := &Server{store: st, mux: r}
+	sessionCookieSecure := false
+	var oauthRT *oauthRuntime
+	if opts.OAuth != nil {
+		cfg := *opts.OAuth
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		rt, err := buildOAuthRuntime(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		oauthRT = rt
+		sessionCookieSecure = rt.cfg.CookieSecure
+	}
+
+	s := &Server{
+		store:               st,
+		mux:                 r,
+		opts:                opts,
+		oauthRT:             oauthRT,
+		sessionCookieSecure: sessionCookieSecure,
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", s.getHealth)
+
+		r.Route("/auth", func(r chi.Router) {
+			r.Get("/login", s.oauthLogin)
+			r.Get("/callback", s.oauthCallback)
+			r.Post("/logout", s.oauthLogout)
+			r.Get("/session", s.getAuthSession)
+		})
+
 		r.Get("/classes", s.getClasses)
 		r.Get("/classes/{classID}", s.getClass)
-		r.With(s.devUser).Post("/classes/{classID}/enroll", s.postEnroll)
-		r.With(s.devUser).Get("/me/classes", s.getMyClasses)
+		r.With(s.requireUser).Post("/classes/{classID}/enroll", s.postEnroll)
+		r.With(s.requireUser).Get("/me/classes", s.getMyClasses)
 	})
 
-	return s
+	return s, nil
 }
 
 func (s *Server) Handler() http.Handler {

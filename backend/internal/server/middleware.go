@@ -2,24 +2,52 @@ package server
 
 import (
 	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
 )
 
 const headerDevUserSubject = "X-User-Subject"
 
-// DevUser extracts X-User-Subject, ensures a users row exists, and sets uuid in context.
-// Replace with real OIDC middleware when auth lands.
-func (s *Server) devUser(next http.Handler) http.Handler {
+// userFromSession resolves the opaque nw_session cookie to an internal user id.
+func (s *Server) userFromSession(r *http.Request) (uuid.UUID, bool) {
+	c, err := r.Cookie(cookieSession)
+	if err != nil || strings.TrimSpace(c.Value) == "" {
+		return uuid.Nil, false
+	}
+	sid, err := uuid.Parse(c.Value)
+	if err != nil {
+		return uuid.Nil, false
+	}
+	userID, _, ok, err := s.store.ResolveSession(r.Context(), sid)
+	if err != nil || !ok {
+		return uuid.Nil, false
+	}
+	return userID, true
+}
+
+// requireUser prefers a DB-backed session cookie created after OAuth login.
+// When opts.AuthDev is true (never in production), X-User-Subject is accepted for integration tests.
+func (s *Server) requireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sub := r.Header.Get(headerDevUserSubject)
-		if sub == "" {
-			writeError(w, http.StatusUnauthorized, "missing "+headerDevUserSubject+" header (dev identity)")
+		if uid, ok := s.userFromSession(r); ok {
+			next.ServeHTTP(w, r.WithContext(withUserID(r.Context(), uid)))
 			return
 		}
-		id, err := s.store.EnsureUser(r.Context(), sub)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to resolve user")
-			return
+
+		if s.opts.AuthDev {
+			sub := strings.TrimSpace(r.Header.Get(headerDevUserSubject))
+			if sub != "" {
+				id, err := s.store.EnsureUser(r.Context(), sub)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to resolve user")
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(withUserID(r.Context(), id)))
+				return
+			}
 		}
-		next.ServeHTTP(w, r.WithContext(withUserID(r.Context(), id)))
+
+		writeError(w, http.StatusUnauthorized, "authentication required")
 	})
 }
