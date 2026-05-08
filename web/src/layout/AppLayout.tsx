@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom'
+﻿import { NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 
 function navClassName({ isActive }: { isActive: boolean }): string {
   return isActive ? 'nav-link nav-link-active' : 'nav-link'
@@ -9,6 +10,8 @@ function navClassName({ isActive }: { isActive: boolean }): string {
  * NavLink sets aria-current="page" on the active route for accessibility.
  */
 export function AppLayout() {
+  const auth = useAuth()
+
   return (
     <>
       <header className="app-header">
@@ -35,6 +38,22 @@ export function AppLayout() {
               </li>
             </ul>
           </nav>
+          <div className="auth-controls">
+            {auth.loading ? (
+              <span className="auth-status">Checking session…</span>
+            ) : auth.authenticated ? (
+              <>
+                <span className="auth-status" title={auth.subject}>Signed in</span>
+                <button className="btn btn-secondary" type="button" onClick={() => void auth.signOut()}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-secondary" type="button" onClick={auth.signIn}>
+                Sign in
+              </button>
+            )}
+          </div>
         </div>
       </header>
       <Outlet />

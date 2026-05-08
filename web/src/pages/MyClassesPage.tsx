@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import * as api from '../api/client'
 
 export function MyClassesPage() {
@@ -23,9 +23,7 @@ export function MyClassesPage() {
   return (
     <main className="page" aria-labelledby="my-classes-title">
       <h1 id="my-classes-title">My classes</h1>
-      <p className="page-lede">
-        Active enrollments for dev user <code>{api.getDevUserSubject()}</code>.
-      </p>
+      <p className="page-lede">Your active enrollments.</p>
       {error ? (
         <p className="banner banner-error" role="alert">
           {error}
